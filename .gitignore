@@ -47,3 +47,11 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+#miscell
+Data/*
+.png
+.jpg
+.csv
+.shp
+.gpkg

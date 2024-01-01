@@ -1,0 +1,163 @@
+---
+title: "dasymetric map"
+author: "Fitrah Ramadhan"
+date: "2023-12-27"
+output: pdf_document
+---
+
+### Import Packages
+
+```{r include=FALSE}
+
+#List necessary packages
+libs <- c('tidyverse', 'sf', 'ggplot2','here','janitor','biscale')
+
+#Install uninstalled packages
+installed_libs <- libs %in% rownames(installed.packages())
+if (any(installed_libs == F)) {
+  install.packages(libs[!installed_libs])
+}
+
+#Load packages
+invisible(lapply(libs, library, character.only = TRUE))
+
+#Check version
+checkVersion <- function(package) {
+  print(paste(package, " : ", packageVersion(package)))
+}
+
+invisible(lapply(libs, checkVersion))
+
+```
+
+### Import Data
+
+```{r include=FALSE}
+
+
+landuse <- sf::st_read(here::here('Data','gis_osm_landuse_a_free_1.shp')) %>% st_transform(27700)
+
+boroughs <- sf::st_read(here::here('Data','London_Borough_Excluding_MHW.shp')) %>% st_transform(27700)
+
+lsoa <- sf::st_read('https://www.dropbox.com/scl/fi/vvwhjbrl8c9akc8x5qoc6/lsoa_england.gpkg?rlkey=qarh74y8hmn0eaxu81inlbafb&dl=1') %>% st_transform(27700)
+
+pbcc <- read_csv('https://www.dropbox.com/scl/fi/6l1i80t0thka7ldgmnzm1/PBCC_LSOA_data.csv?rlkey=reg0mbe6b9inp5586iugxxhk4&dl=1')
+pbcc <- pbcc %>%
+  janitor::clean_names() 
+```
+
+### Filtering only for 1 Borough
+
+```{r}
+
+camden <- boroughs %>%
+  dplyr::filter(NAME == 'Camden')
+```
+
+```{r}
+
+camden_lsoa <- lsoa %>%
+  sf::st_intersection(., camden) %>%
+  dplyr::select('geom')
+
+```
+
+```{r}
+
+lsoa <- lsoa %>%
+  dplyr::left_join(., pbcc, join_by(code == lsoa11)) %>%
+  dplyr::select('code','name','pop_2018','epc_total','epc_score_avg','total_kgco2e_percap')
+```
+
+### Scenario 1: Bivariate by LSOAs
+
+```{r}
+
+london_pbcc <- lsoa %>%
+  sf::st_intersection(., boroughs) %>%
+  biscale::bi_class(., x = epc_score_avg, y = total_kgco2e_percap, style='fisher' , dim = 4)
+  
+# create map
+london_pbcc_map <- ggplot() +
+  geom_sf(data = london_pbcc, mapping = aes(fill = bi_class), color = "transparent", size = 0, show.legend = FALSE) +
+  bi_scale_fill(pal = "DkViolet2", dim = 4) + bi_theme()
+
+print(london_pbcc_map)
+
+ggsave("bivariate_london.jpg", plot = london_pbcc_map, width = 10, height = 8, units = "in")
+```
+
+```{r}
+
+
+camden_pbcc <- london_pbcc %>%
+  sf::st_intersection(., camden)
+
+# create map
+camden_pbcc_map <- ggplot() +
+  geom_sf(data = camden_pbcc, mapping = aes(fill = bi_class), color = "transparent", size = 0, show.legend = FALSE) +
+  bi_scale_fill(pal = "DkViolet2", dim = 4) + bi_theme()
+
+print(camden_pbcc_map)
+
+ggsave("bivariate_camden.jpg", plot = camden_pbcc_map, width = 10, height = 8, units = "in")
+```
+
+### Scenario 2: Dasymetric Map
+
+```{r}
+
+residential_per_lsoa <- sf::st_intersection(landuse, lsoa) %>%
+  dplyr::filter(fclass == 'residential') %>%
+  janitor::clean_names() %>%
+  dplyr::group_by(name_1) %>%
+  dplyr::summarise(epc_score_avg = mean(epc_score_avg),
+                   total_kgco2e_percap = mean(total_kgco2e_percap),
+                   epc_total = mean(epc_total)) %>%
+  biscale::bi_class(., x = epc_score_avg, y = total_kgco2e_percap, style='fisher' , dim = 4)
+
+```
+
+```{r}
+
+# create map
+map_residential_lsoa <- ggplot() +
+  geom_sf(data = residential_per_lsoa, mapping = aes(fill = bi_class), color = "transparent", size = 0, show.legend = FALSE) +
+  geom_sf(data = boroughs, fill = 'transparent', color = "gray", size = 0, show.legend = FALSE) +
+  bi_scale_fill(pal = "DkViolet2", dim = 4) + bi_theme()
+
+print(map_residential_lsoa)
+
+ggsave("dasymetric_london.jpg", plot = map_residential_lsoa, width = 10, height = 8, units = "in")
+```
+
+```{r}
+
+camden_residential_pbcc <- residential_per_lsoa %>%
+  sf::st_intersection(., camden)
+
+# create map
+camden_residential_pbcc_map <- ggplot() +
+  geom_sf(data = camden_residential_pbcc, mapping = aes(fill = bi_class), color = "transparent", size = 0, show.legend = FALSE) +
+  geom_sf(data = camden_lsoa, fill = 'transparent', color = "gray", size = 0, show.legend = FALSE) +
+  bi_scale_fill(pal = "DkViolet2", dim = 4) + bi_theme()
+
+print(camden_residential_pbcc_map)
+
+ggsave("dasymetric_camden.jpg", plot = camden_residential_pbcc_map, width = 10, height = 8, units = "in")
+```
+
+### Legend
+
+```{r}
+
+legend <- bi_legend(pal = "DkViolet2",
+                    dim = 4,
+                    xlab = "Average EPC score",
+                    ylab = "Total carbon footprint per person kgCO2e",
+                    size = 6.5)
+
+print(legend)
+
+ggsave("legend.jpg", plot = legend, width = 10, height = 8, units = "in")
+```
